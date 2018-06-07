@@ -1,25 +1,25 @@
 package main
 
 import (
-	"flag"
-	"path/filepath"
-	"os"
-	"log"
 	"bytes"
+	"flag"
 	"fmt"
-	"time"
+	"log"
+	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 
 	batch "k8s.io/api/batch/v1"
 	core "k8s.io/api/core/v1"
 
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
+	"k8s.io/client-go/tools/clientcmd"
 
-	"k8s.io/apimachinery/pkg/util/yaml"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/yaml"
 
 	"io"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -122,10 +122,10 @@ func watchJob(cs *kubernetes.Clientset, job *batch.Job, resultChan chan<- bool) 
 				}
 			}()
 		case core.PodSucceeded:
-			resultChan <-true
+			resultChan <- true
 			return
 		case core.PodFailed:
-			resultChan <-false
+			resultChan <- false
 			return
 		}
 
