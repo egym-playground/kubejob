@@ -9,20 +9,21 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
-	"time"
+	"io"
+
+	"github.com/egymgmbh/go-prefix-writer/prefixer"
 
 	batch "k8s.io/api/batch/v1"
 	core "k8s.io/api/core/v1"
 
-	"k8s.io/client-go/kubernetes"
-	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
-	"k8s.io/client-go/tools/clientcmd"
-
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
-	"io"
+	"k8s.io/client-go/kubernetes"
+	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/kubernetes/scheme"
+	"time"
 )
 
 func main() {
@@ -32,8 +33,30 @@ func main() {
 	} else {
 		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
-	namespace := flag.String("n", "", "k8s namespace to use")
+	namespace := flag.String("n", "", "kubernetes namespace to use")
+	timeoutStr := flag.String("t", "", "(optional) timeout in time.Duration format (eg. 10s, 1m, 1h, ...)")
+	// help := flag.Bool("h", false, "(optional) print usage information")
 	flag.Parse()
+
+	if len(*namespace) == 0 {
+		fmt.Fprint(os.Stderr, "Purpose: Create a Kubernetes job and watch the logs until it completes.\n")
+		fmt.Fprintf(os.Stderr, "\nUsage:\n\t%s -n Namespace [-kubeconfig ConfigFile] [-t Timeout] [JobFile]\n", os.Args[0])
+		fmt.Fprintln(os.Stderr, "\nExamples:")
+		fmt.Fprintf(os.Stderr, "\t# Read job spec from file:\n\t%s -n test job.yaml\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "\t# Read job spec from stdin:\n\tcat job.yaml | %s -n test\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		flag.PrintDefaults()
+		return
+	}
+
+	var timeoutChan <-chan time.Time
+	if len(*timeoutStr) > 0 {
+		timeout, err := time.ParseDuration(*timeoutStr)
+		if err != nil {
+			log.Fatal("invalid timeout (-t): ", err)
+		}
+		timeoutChan = time.After(timeout)
+	}
 
 	var jobFile *os.File
 	if len(flag.Args()) > 0 {
@@ -71,7 +94,10 @@ func main() {
 
 	// wait for signal or shutdown
 	select {
+	case <-timeoutChan:
+		log.Print("timeout")
 	case <-sigChan:
+		log.Print("cancelled by signal")
 	case result := <-resultChan:
 		if result {
 			log.Print("job completed successfully")
@@ -90,23 +116,18 @@ func main() {
 func watchJob(cs *kubernetes.Clientset, job *batch.Job, resultChan chan<- bool) {
 	var lastPhase core.PodPhase
 
-	for {
-		time.Sleep(100 * time.Millisecond)
+	listOpts := meta.ListOptions{
+		LabelSelector: labelSelector(job.Spec.Selector.MatchLabels),
+		Watch:         true,
+	}
+	watch, err := cs.CoreV1().Pods(job.Namespace).Watch(listOpts)
+	if err != nil {
+		log.Print("unable to watch: ", err)
+	}
+	defer watch.Stop()
 
-		podList, err := getPods(cs, job)
-		if err != nil {
-			log.Print("list pods failed: ", err)
-			continue
-		}
-		if len(podList.Items) == 0 {
-			continue
-		}
-		if len(podList.Items) > 1 {
-			log.Print("unexpected number of pods: ", len(podList.Items))
-			continue
-		}
-
-		pod := podList.Items[0]
+	for event := range watch.ResultChan() {
+		pod := event.Object.(*core.Pod)
 
 		// Only act on phase transitions
 		if pod.Status.Phase == lastPhase {
@@ -115,12 +136,7 @@ func watchJob(cs *kubernetes.Clientset, job *batch.Job, resultChan chan<- bool) 
 
 		switch pod.Status.Phase {
 		case core.PodRunning:
-			go func() {
-				err := streamLogs(cs, job)
-				if err != nil {
-					log.Print("streamLogs: ", err)
-				}
-			}()
+			startLogStreaming(cs, pod)
 		case core.PodSucceeded:
 			resultChan <- true
 			return
@@ -133,35 +149,48 @@ func watchJob(cs *kubernetes.Clientset, job *batch.Job, resultChan chan<- bool) 
 	}
 }
 
-func streamLogs(cs *kubernetes.Clientset, job *batch.Job) error {
-	pods, err := getPods(cs, job)
-	if err != nil {
-		return err
+func startLogStreaming(cs *kubernetes.Clientset, pod *core.Pod) {
+	if len(pod.Spec.Containers) == 1 {
+		go streamLogsForContainer(cs, pod, "")
+	} else {
+		for _, container := range pod.Spec.Containers {
+			go streamLogsForContainer(cs, pod, container.Name)
+		}
 	}
-	pod := pods.Items[0]
+}
 
+func streamLogsForContainer(cs *kubernetes.Clientset, pod *core.Pod, container string) {
 	logOpts := core.PodLogOptions{
 		Follow: true,
+		Container: container,
 	}
 
-	req := cs.CoreV1().RESTClient().Get().Namespace(pod.Namespace).Resource("pods").Name(pod.Name).SubResource("log").VersionedParams(&logOpts, scheme.ParameterCodec)
-	stream, err := req.Stream()
+	stream, err := cs.CoreV1().RESTClient().Get().
+		Namespace(pod.Namespace).
+		Resource("pods").
+		Name(pod.Name).
+		SubResource("log").
+		VersionedParams(&logOpts, scheme.ParameterCodec).Stream()
 	if err != nil {
-		return err
+		log.Print("Log stream request failed: ", err)
+		return
 	}
 	defer stream.Close()
 
-	_, err = io.Copy(os.Stdout, stream)
-	if err != nil {
-		return err
+	// prefix output lines with container name if set
+	var prefix string
+	if len(container) > 0 {
+		prefix = container + ": "
 	}
+	out := prefixer.New(os.Stdout, func() string {
+		return prefix
+	})
 
-	return nil
-}
-
-func getPods(cs *kubernetes.Clientset, job *batch.Job) (*core.PodList, error) {
-	ns := job.ObjectMeta.Namespace
-	return cs.CoreV1().Pods(ns).List(meta.ListOptions{LabelSelector: labelSelector(job.Spec.Selector.MatchLabels)})
+	_, err = io.Copy(out, stream)
+	if err != nil {
+		log.Print("Reading logs failed: ", err)
+		return
+	}
 }
 
 func labelSelector(labels map[string]string) string {
