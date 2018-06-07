@@ -11,7 +11,6 @@ import (
 	"os/signal"
 	"syscall"
 
-
 	batch "k8s.io/api/batch/v1"
 	core "k8s.io/api/core/v1"
 
@@ -22,6 +21,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"io"
+	"k8s.io/client-go/kubernetes/scheme"
 )
 
 func main() {
@@ -87,6 +88,8 @@ func main() {
 }
 
 func watchJob(cs *kubernetes.Clientset, job *batch.Job, resultChan chan<- bool) {
+	var lastPhase core.PodPhase
+
 	for {
 		time.Sleep(100 * time.Millisecond)
 
@@ -104,17 +107,56 @@ func watchJob(cs *kubernetes.Clientset, job *batch.Job, resultChan chan<- bool) 
 		}
 
 		pod := podList.Items[0]
-		log.Print("status: ", pod.Status.Phase)
 
-		if pod.Status.Phase == core.PodSucceeded {
+		// Only act on phase transitions
+		if pod.Status.Phase == lastPhase {
+			continue
+		}
+
+		switch pod.Status.Phase {
+		case core.PodRunning:
+			go func() {
+				err := streamLogs(cs, job)
+				if err != nil {
+					log.Print("streamLogs: ", err)
+				}
+			}()
+		case core.PodSucceeded:
 			resultChan <-true
 			return
-		}
-		if pod.Status.Phase == core.PodFailed {
+		case core.PodFailed:
 			resultChan <-false
 			return
 		}
+
+		lastPhase = pod.Status.Phase
 	}
+}
+
+func streamLogs(cs *kubernetes.Clientset, job *batch.Job) error {
+	pods, err := getPods(cs, job)
+	if err != nil {
+		return err
+	}
+	pod := pods.Items[0]
+
+	logOpts := core.PodLogOptions{
+		Follow: true,
+	}
+
+	req := cs.CoreV1().RESTClient().Get().Namespace(pod.Namespace).Resource("pods").Name(pod.Name).SubResource("log").VersionedParams(&logOpts, scheme.ParameterCodec)
+	stream, err := req.Stream()
+	if err != nil {
+		return err
+	}
+	defer stream.Close()
+
+	_, err = io.Copy(os.Stdout, stream)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func getPods(cs *kubernetes.Clientset, job *batch.Job) (*core.PodList, error) {
