@@ -92,6 +92,15 @@ func main() {
 	resultChan := make(chan bool)
 	go watchJob(cs, job, resultChan)
 
+	// make sure we clean up properly
+	defer func() {
+		log.Print("deleting job")
+		err = cs.BatchV1().Jobs(*namespace).Delete(job.Name, nil)
+		if err != nil {
+			log.Print("delete job: ", err)
+		}
+	}()
+
 	// wait for signal or shutdown
 	select {
 	case <-timeoutChan:
@@ -104,12 +113,6 @@ func main() {
 		} else {
 			log.Fatal("job failed")
 		}
-	}
-
-	log.Print("deleting job")
-	err = cs.BatchV1().Jobs(*namespace).Delete(job.Name, nil)
-	if err != nil {
-		log.Print("delete job: ", err)
 	}
 }
 
