@@ -8,6 +8,6 @@ spec:
       containers:
       - name: count1
         image: ubuntu
-        command: ["sh", "-c", "for i in `seq 1 10`; do echo $i; sleep 1; done"]
+        command: ["sh", "-c", "for i in `seq 1 10`; do echo $i; sleep 1; done; false"]
       restartPolicy: Never
       backoffLimit: 0
