@@ -9,8 +9,5 @@ spec:
       - name: count1
         image: ubuntu
         command: ["sh", "-c", "for i in `seq 1 10`; do echo $i; sleep 1; done"]
-      - name: count2
-        image: ubuntu
-        command: ["sh", "-c", "for i in `seq 11 20`; do echo $i; sleep 1; done"]
       restartPolicy: Never
       backoffLimit: 0
