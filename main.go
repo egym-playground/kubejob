@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
-	"io"
+	"sync"
+	"time"
 
 	"github.com/egymgmbh/go-prefix-writer/prefixer"
 
@@ -20,10 +22,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/kubernetes/scheme"
-	"time"
 )
 
 func main() {
@@ -129,6 +130,9 @@ func watchJob(cs *kubernetes.Clientset, job *batch.Job, resultChan chan<- bool) 
 	}
 	defer watch.Stop()
 
+	logsDone := make(chan interface{})
+	var result bool
+
 	for event := range watch.ResultChan() {
 		pod := event.Object.(*core.Pod)
 
@@ -139,32 +143,53 @@ func watchJob(cs *kubernetes.Clientset, job *batch.Job, resultChan chan<- bool) 
 
 		switch pod.Status.Phase {
 		case core.PodRunning:
-			startLogStreaming(cs, pod)
+			startLogStreaming(cs, pod, logsDone)
 		case core.PodSucceeded:
-			resultChan <- true
-			return
+			result = true
+			goto end
 		case core.PodFailed:
-			resultChan <- false
-			return
+			result = false
+			goto end
 		}
 
 		lastPhase = pod.Status.Phase
 	}
+
+end:
+
+	// wait for logs but no more than 10s
+	select {
+	case <-logsDone:
+	case <-time.After(10 * time.Second):
+	}
+
+	// send the result
+	resultChan <- result
 }
 
-func startLogStreaming(cs *kubernetes.Clientset, pod *core.Pod) {
+func startLogStreaming(cs *kubernetes.Clientset, pod *core.Pod, done chan<- interface{}) {
+	var wg sync.WaitGroup
 	if len(pod.Spec.Containers) == 1 {
-		go streamLogsForContainer(cs, pod, "")
+		wg.Add(1)
+		go streamLogsForContainer(cs, pod, "", &wg)
 	} else {
+		wg.Add(len(pod.Spec.Containers))
 		for _, container := range pod.Spec.Containers {
-			go streamLogsForContainer(cs, pod, container.Name)
+			go streamLogsForContainer(cs, pod, container.Name, &wg)
 		}
 	}
+
+	go func() {
+		wg.Wait()
+		done <- nil
+	}()
 }
 
-func streamLogsForContainer(cs *kubernetes.Clientset, pod *core.Pod, container string) {
+func streamLogsForContainer(cs *kubernetes.Clientset, pod *core.Pod, container string, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	logOpts := core.PodLogOptions{
-		Follow: true,
+		Follow:    true,
 		Container: container,
 	}
 
