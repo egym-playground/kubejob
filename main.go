@@ -9,8 +9,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"syscall"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/egymgmbh/go-prefix-writer/prefixer"
@@ -54,7 +54,7 @@ func main() {
 	if len(*timeoutStr) > 0 {
 		timeout, err := time.ParseDuration(*timeoutStr)
 		if err != nil {
-			log.Fatal("invalid timeout (-t): ", err)
+			log.Fatal("Invalid timeout (-t): ", err)
 		}
 		timeoutChan = time.After(timeout)
 	}
@@ -64,7 +64,7 @@ func main() {
 		var err error
 		jobFile, err = os.Open(flag.Arg(0))
 		if err != nil {
-			log.Fatal("unable to open job file: ", err)
+			log.Fatal("Unable to open job file: ", err)
 		}
 	} else {
 		jobFile = os.Stdin
@@ -73,12 +73,12 @@ func main() {
 	var jobIn batch.Job
 	err := yaml.NewYAMLOrJSONDecoder(jobFile, 1024).Decode(&jobIn)
 	if err != nil {
-		log.Fatal("unable to parse job spec: ", err)
+		log.Fatal("Unable to parse job spec: ", err)
 	}
 
 	cs, err := k8sClientSet(*kubeconfig)
 	if err != nil {
-		log.Fatal("failed to create client: ", err)
+		log.Fatal("Failed to create client: ", err)
 	}
 
 	sigChan := make(chan os.Signal)
@@ -87,33 +87,36 @@ func main() {
 	// create the job
 	job, err := cs.BatchV1().Jobs(*namespace).Create(&jobIn)
 	if err != nil {
-		log.Fatal("failed to create job: ", err)
+		log.Fatal("Failed to create job: ", err)
 	}
 
 	resultChan := make(chan bool)
 	go watchJob(cs, job, resultChan)
 
-	// make sure we clean up properly
-	defer func() {
-		log.Print("deleting job")
-		err = cs.BatchV1().Jobs(*namespace).Delete(job.Name, nil)
-		if err != nil {
-			log.Print("delete job: ", err)
-		}
-	}()
+	result := false
 
 	// wait for signal or shutdown
 	select {
 	case <-timeoutChan:
-		log.Print("timeout")
+		log.Print("Timeout after ", *timeoutStr)
 	case <-sigChan:
-		log.Print("cancelled by signal")
-	case result := <-resultChan:
+		log.Print("Cancelled by signal")
+	case result = <-resultChan:
 		if result {
-			log.Print("job completed successfully")
+			log.Print("Job completed successfully")
 		} else {
-			log.Fatal("job failed")
+			log.Print("Job failed")
 		}
+	}
+
+	log.Print("Deleting job")
+	err = cs.BatchV1().Jobs(*namespace).Delete(job.Name, nil)
+	if err != nil {
+		log.Print("Deleting job: ", err)
+	}
+
+	if !result {
+		os.Exit(1)
 	}
 }
 
@@ -132,6 +135,7 @@ func watchJob(cs *kubernetes.Clientset, job *batch.Job, resultChan chan<- bool) 
 
 	logsDone := make(chan interface{})
 	var result bool
+	oncePerPod := make(map[string]bool)
 
 	for event := range watch.ResultChan() {
 		pod := event.Object.(*core.Pod)
@@ -141,13 +145,26 @@ func watchJob(cs *kubernetes.Clientset, job *batch.Job, resultChan chan<- bool) 
 			continue
 		}
 
+		log.Print(pod.Name, ": ", pod.Status.Phase)
+
+		ensureLogStreaming := func() {
+			// Start streaming logs once per pod
+			if oncePerPod[pod.Name] {
+				return
+			}
+			oncePerPod[pod.Name] = true
+			startLogStreaming(cs, pod, logsDone)
+		}
+
 		switch pod.Status.Phase {
 		case core.PodRunning:
-			startLogStreaming(cs, pod, logsDone)
+			ensureLogStreaming()
 		case core.PodSucceeded:
+			ensureLogStreaming()
 			result = true
 			goto end
 		case core.PodFailed:
+			ensureLogStreaming()
 			result = false
 			goto end
 		}
@@ -161,6 +178,7 @@ end:
 	select {
 	case <-logsDone:
 	case <-time.After(10 * time.Second):
+		log.Print("timeout waiting for logs")
 	}
 
 	// send the result
