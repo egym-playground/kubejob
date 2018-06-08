@@ -1,7 +1,12 @@
 # kubejob
-Run Kubernetes jobs and wait for their completion
+Run Kubernetes jobs and wait for their completion.
 
-## How to build
+## Motivation
+Sometimes you just want to run a job in a Kubernetes cluster and wait for its completion while
+keeping an eye on the container output. This usecase frequently appears in deployment pipelines
+eg. for running a smoke test or a database migration before the actual deployment continues. 
+
+## How to install
 ```bash
 go get -v -u github.com/egymgmbh/kubejob
 ```
