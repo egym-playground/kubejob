@@ -23,6 +23,25 @@ to do some processing with the file before you hand it to `kubejob`, eg. for rep
 sed s/IMAGE_TAG/v1.42/ my.job.yaml | kubejob -n test
 ```
 
+### Avoiding unintended restarts
+In order to avoid unintended restarts you should set `.spec.template.spec.restartPolicy=Never` and
+`.spec.backoffLimit=0`, eg.:
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: demo
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: count1
+        image: ubuntu
+        command: ["sh", "-c", "for i in `seq 1 10`; do echo $i; done; false"]
+```
+
 ### Example output
 ```
 2018/06/08 16:18:33 demo-7zbq9: Pending
