@@ -2,6 +2,7 @@ language: go
 go:
   - "1.10.x"
 script:
+  - set -e
   - go get -v ./...
   - test -n "$(gofmt -l .)"
   - go vet .
