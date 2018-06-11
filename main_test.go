@@ -3,8 +3,8 @@ package main
 import "testing"
 
 func TestLabelSelector(t *testing.T) {
-	data := []struct{
-		in map[string]string
+	data := []struct {
+		in  map[string]string
 		out string
 	}{
 		{

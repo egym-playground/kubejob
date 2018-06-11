@@ -1,16 +1,16 @@
 package cli
 
 import (
-	"testing"
-	"reflect"
 	"bytes"
+	"reflect"
 	"strings"
+	"testing"
 )
 
 func TestParse(t *testing.T) {
-	data := []struct{
-		home string
-		args []string
+	data := []struct {
+		home        string
+		args        []string
 		expectedRes Args
 		expectedErr bool
 		outContains string
@@ -20,8 +20,8 @@ func TestParse(t *testing.T) {
 			[]string{"kubejob", "-n", "foo"},
 			Args{
 				Kubeconfig: "/foo/bar/.kube/config",
-				Namespace: "foo",
-				JobFile: "-",
+				Namespace:  "foo",
+				JobFile:    "-",
 			},
 			false,
 			"",
@@ -31,8 +31,8 @@ func TestParse(t *testing.T) {
 			[]string{"kubejob", "-n", "foo", "/fizz/buzz"},
 			Args{
 				Kubeconfig: "/foo/bar/.kube/config",
-				Namespace: "foo",
-				JobFile: "/fizz/buzz",
+				Namespace:  "foo",
+				JobFile:    "/fizz/buzz",
 			},
 			false,
 			"",

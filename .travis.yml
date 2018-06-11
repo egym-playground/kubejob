@@ -3,7 +3,7 @@ go:
   - "1.10.x"
 script:
   - go get -v ./...
-  - test -n $(gofmt -l .)
+  - test -n "$(gofmt -l .)"
   - go vet .
   - go test -cover -race ./...
   - export GITHASH=$(git rev-parse HEAD) # Git commit hash is used as version string in main.go

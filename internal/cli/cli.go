@@ -1,12 +1,12 @@
 package cli
 
 import (
-	"path/filepath"
-	"time"
-	"text/template"
 	"bytes"
 	"fmt"
 	"io"
+	"path/filepath"
+	"text/template"
+	"time"
 
 	"gopkg.in/alecthomas/kingpin.v2"
 )
