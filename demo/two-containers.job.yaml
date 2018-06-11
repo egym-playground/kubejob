@@ -3,14 +3,14 @@ kind: Job
 metadata:
   name: demo
 spec:
+  backoffLimit: 0
   template:
     spec:
+      restartPolicy: Never
       containers:
-      - name: count
+      - name: container1
         image: ubuntu
         command: ["sh", "-c", "for i in `seq 1 10`; do echo $i; sleep 1; done"]
-      - name: count2
+      - name: container2
         image: ubuntu
         command: ["sh", "-c", "for i in `seq 11 20`; do echo $i; sleep 1; done"]
-      restartPolicy: Never
-      backoffLimit: 0

@@ -76,6 +76,13 @@ func main() {
 		log.Fatal("Unable to parse job spec: ", err)
 	}
 
+	if jobIn.Spec.Template.Spec.RestartPolicy != core.RestartPolicyNever {
+		log.Print(`Warning: ".spec.template.spec.restartPolicy" should be set to "Never" in order to avoid unintended restarts`)
+	}
+	if jobIn.Spec.BackoffLimit == nil || *jobIn.Spec.BackoffLimit != 0 {
+		log.Print(`Warning: ".spec.backoffLimit" should be set to "0" in order to avoid unintended restarts`)
+	}
+
 	cs, err := k8sClientSet(*kubeconfig)
 	if err != nil {
 		log.Fatal("Failed to create client: ", err)
