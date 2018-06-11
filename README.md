@@ -17,6 +17,12 @@ Assuming that your `$GOPATH/bin` is part of your `$PATH`, you can call it direct
 kubejob -n test demo/two-containers.job.yaml
 ```
 
+If you don't specify a job file `kubejob` reads it from `stdin`. This can be useful if you need
+to do some processing with the file before you hand it to `kubejob`, eg. for replacing an image tag:
+```bash
+sed s/IMAGE_TAG/v1.42/ my.job.yaml | kubejob -n test
+```
+
 ### Example output
 ```
 2018/06/08 16:18:33 demo-7zbq9: Pending
