@@ -12,6 +12,7 @@ import (
 )
 
 const helpTemplate = `Purpose: Create a Kubernetes job and watch the logs until it completes.
+
 Examples:
 	# Read job spec from file:
 	{{ .app }} -n test job.yaml
