@@ -58,7 +58,34 @@ func main() {
 		log.Fatal("Failed to create client: ", err)
 	}
 
-	success, err := job.RunJob(ctx, cs, args.Namespace, jobSpec)
+	events := make(chan job.Event)
+	go func() {
+		var lastPhase core.PodPhase
+		for event := range events {
+			switch event := event.(type) {
+			case error:
+				log.Printf("Error: %v", event)
+			case job.LogLine:
+				log.Printf("%s: %s", event.Container, event.Line)
+			case core.PodStatus:
+				status := event
+				if status.Phase != lastPhase {
+					log.Print("Phase: ", status.Phase)
+				}
+				lastPhase = status.Phase
+
+				if status.Phase == core.PodPending {
+					for _, cs := range status.ContainerStatuses {
+						if cs.State.Waiting != nil {
+							log.Printf("Container %s is waiting: %s", cs.Name, cs.State.Waiting.Reason)
+						}
+					}
+				}
+			}
+		}
+	}()
+
+	success, err := job.RunJob(ctx, cs, args.Namespace, jobSpec, events)
 	if success {
 		log.Print("Job completed successfully")
 	} else {

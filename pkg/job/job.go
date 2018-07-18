@@ -1,17 +1,14 @@
 package job
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"log"
-	"os"
 	"sync"
 	"time"
-
-	"github.com/egymgmbh/go-prefix-writer/prefixer"
 
 	batch "k8s.io/api/batch/v1"
 	core "k8s.io/api/core/v1"
@@ -22,21 +19,34 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 )
 
+// Event is some event during job execution.
+// It can be either of type error, core.PodStatus or LogLine.
+type Event interface{}
+
+// LogLine represents one line of log output from a container.
+type LogLine struct {
+	Container string // container name
+	Line      string // one line of log output
+}
+
 type result struct {
 	success bool
 	err     error
 }
 
-func RunJob(ctx context.Context, cs *kubernetes.Clientset, namespace string, jobIn *batch.Job) (bool, error) {
+// RunJob executes the specified jobIn and waits for its completion.
+// An optional events channel can be provided to receive pod status updates, log messages and errors. The provided channel
+// must be read or the operation won't make progress.
+func RunJob(ctx context.Context, cs *kubernetes.Clientset, namespace string, jobIn *batch.Job, events chan<- Event) (bool, error) {
 	job, err := cs.BatchV1().Jobs(namespace).Create(jobIn)
 	if err != nil {
-		log.Fatal("Failed to create job: ", err)
+		return false, fmt.Errorf("failed to create job: %v", err)
 	}
 
 	resultChan := make(chan result)
-	go watchJob(ctx, cs, job, resultChan)
+	go watchJob(ctx, cs, job, resultChan, events)
 
-	// wait for signal or shutdown
+	// wait for context or job
 	select {
 	case <-ctx.Done():
 		return false, ctx.Err()
@@ -48,7 +58,8 @@ func RunJob(ctx context.Context, cs *kubernetes.Clientset, namespace string, job
 // WatchJob waits until job is done and reports the result (sucess or failure) through resultChan. The function ensures
 // that all log output of the job is reported on os.Stdout and waits up to 10s for the end of the logs after the job
 // finished before reporting to resultChan.
-func watchJob(ctx context.Context, cs *kubernetes.Clientset, job *batch.Job, resultChan chan<- result) {
+// An optional statusChan can be provided to receive pod status updates.
+func watchJob(ctx context.Context, cs *kubernetes.Clientset, job *batch.Job, resultChan chan<- result, events chan<- Event) {
 	var lastPhase core.PodPhase
 
 	listOpts := meta.ListOptions{
@@ -66,45 +77,53 @@ func watchJob(ctx context.Context, cs *kubernetes.Clientset, job *batch.Job, res
 	var success bool
 	oncePerPod := make(map[string]bool)
 
+	// Start streaming logs once per pod. This is a no-op if was streaming already started.
+	ensureLogStreaming := func(pod *core.Pod) {
+		// no need to stream events if nobody's listening
+		if events == nil {
+			return
+		}
+		if oncePerPod[pod.Name] {
+			return
+		}
+		oncePerPod[pod.Name] = true
+		startLogStreaming(cs, pod, logsDone, events)
+	}
+
 	for event := range watch.ResultChan() {
-		if ctx.Err() != nil {
-			break
+		pod := event.Object.(*core.Pod)
+		if events != nil {
+			events <- pod.Status
 		}
 
-		pod := event.Object.(*core.Pod)
+		// Quit if context is done
+		if ctx.Err() != nil {
+			goto end
+		}
 
 		// Only act on phase transitions
 		if pod.Status.Phase == lastPhase {
 			continue
 		}
 
-		ensureLogStreaming := func() {
-			// Start streaming logs once per pod
-			if oncePerPod[pod.Name] {
-				return
-			}
-			oncePerPod[pod.Name] = true
-			startLogStreaming(cs, pod, logsDone)
-		}
-
 		switch pod.Status.Phase {
 		case core.PodRunning:
-			ensureLogStreaming()
+			ensureLogStreaming(pod)
 		case core.PodSucceeded:
-			ensureLogStreaming()
+			ensureLogStreaming(pod)
 			success = true
-			break
+			goto end
 		case core.PodFailed:
-			ensureLogStreaming()
+			ensureLogStreaming(pod)
 			success = false
-			break
+			goto end
 		}
 
 		lastPhase = pod.Status.Phase
 	}
 
+end:
 	err = nil
-
 	// wait for end of logs but no more than 10s
 	select {
 	case <-logsDone:
@@ -119,17 +138,12 @@ func watchJob(ctx context.Context, cs *kubernetes.Clientset, job *batch.Job, res
 }
 
 // startLogStreaming starts streaming the logs for all containers in the pod. The function returns immediately and
-// signals the end of all logs treams by closing the done channel.
-func startLogStreaming(cs *kubernetes.Clientset, pod *core.Pod, done chan<- interface{}) {
+// signals the end of all logs streams by closing the done channel.
+func startLogStreaming(cs *kubernetes.Clientset, pod *core.Pod, done chan<- interface{}, events chan<- Event) {
 	var wg sync.WaitGroup
-	if len(pod.Spec.Containers) == 1 {
-		wg.Add(1)
-		go streamLogsForContainer(cs, pod, "", &wg)
-	} else {
-		wg.Add(len(pod.Spec.Containers))
-		for _, container := range pod.Spec.Containers {
-			go streamLogsForContainer(cs, pod, container.Name, &wg)
-		}
+	wg.Add(len(pod.Spec.Containers))
+	for _, container := range pod.Spec.Containers {
+		go streamLogsForContainer(cs, pod, container.Name, &wg, events)
 	}
 
 	go func() {
@@ -141,7 +155,7 @@ func startLogStreaming(cs *kubernetes.Clientset, pod *core.Pod, done chan<- inte
 // streamLogsForContainer reads all the logs from the specified container which must be part of the specified pod
 // and writes them to os.Stdout using the container name as a prefix. container may be empty in case pod has only
 // one container. wg.Done() is called when the end of the log stream is reached.
-func streamLogsForContainer(cs *kubernetes.Clientset, pod *core.Pod, container string, wg *sync.WaitGroup) {
+func streamLogsForContainer(cs *kubernetes.Clientset, pod *core.Pod, container string, wg *sync.WaitGroup, events chan<- Event) {
 	defer wg.Done()
 
 	logOpts := core.PodLogOptions{
@@ -156,24 +170,22 @@ func streamLogsForContainer(cs *kubernetes.Clientset, pod *core.Pod, container s
 		SubResource("log").
 		VersionedParams(&logOpts, scheme.ParameterCodec).Stream()
 	if err != nil {
-		log.Print("Log stream request failed: ", err)
+		events <- fmt.Errorf("streamLogsForContainer: %v", err)
 		return
 	}
 	defer stream.Close()
 
-	// prefix output lines with container name if set
-	var prefix string
-	if len(container) > 0 {
-		prefix = container + ": "
-	}
-	out := prefixer.New(os.Stdout, func() string {
-		return prefix
-	})
-
-	_, err = io.Copy(out, stream)
-	if err != nil {
-		log.Print("Reading logs failed: ", err)
-		return
+	reader := bufio.NewReader(stream)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			events <- fmt.Errorf("streamLogsForContainer: %v", err)
+			return
+		}
+		events <- LogLine{pod.Name, line}
+		if err == io.EOF {
+			return
+		}
 	}
 }
 
