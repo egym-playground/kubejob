@@ -2,13 +2,14 @@ package job
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"sync"
 	"time"
-	"context"
 
 	"github.com/egymgmbh/go-prefix-writer/prefixer"
 
@@ -19,12 +20,11 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
-	"errors"
 )
 
 type result struct {
 	success bool
-	err error
+	err     error
 }
 
 func RunJob(ctx context.Context, cs *kubernetes.Clientset, namespace string, jobIn *batch.Job) (bool, error) {
