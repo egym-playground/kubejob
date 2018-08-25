@@ -2,7 +2,7 @@ language: go
 go:
   - "1.11.x"
 install:
-  - /bin/true
+#  - /bin/true
 script:
   - set -e
   - export GO111MODULE=on
