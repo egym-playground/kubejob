@@ -6,8 +6,9 @@ install:
 script:
   - set -e
   - go version
-  - export GITHASH=$(git rev-parse HEAD) # Git commit hash is used as version string in main.go
-  - go build -v -ldflags "-extldflags '-static' -X main.githash=$GITHASH"
-  - diff -u <(echo -n) <(gofmt -d ./)
-  - go vet .
-  - go test -cover -race ./...
+  - go build -v
+#  - export GITHASH=$(git rev-parse HEAD) # Git commit hash is used as version string in main.go
+#  - go build -v -ldflags "-extldflags '-static' -X main.githash=$GITHASH"
+#  - diff -u <(echo -n) <(gofmt -d ./)
+#  - go vet .
+#  - go test -cover -race ./...
