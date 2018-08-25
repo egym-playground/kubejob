@@ -5,6 +5,7 @@ install:
   - /bin/true
 script:
   - set -e
+  - export GO111MODULE=on
   - go version
   - go build -v
 #  - export GITHASH=$(git rev-parse HEAD) # Git commit hash is used as version string in main.go
