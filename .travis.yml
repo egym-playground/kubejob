@@ -1,9 +1,8 @@
 language: go
 go:
-  - "1.10.x"
+  - "1.11.x"
 script:
   - set -e
-  - go get -v ./...
   - diff -u <(echo -n) <(gofmt -d ./)
   - go vet .
   - go test -cover -race ./...
