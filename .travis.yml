@@ -7,4 +7,4 @@ script:
   - go vet .
   - go test -cover -race ./...
   - export GITHASH=$(git rev-parse HEAD) # Git commit hash is used as version string in main.go
-  - go build -ldflags "-extldflags '-static' -X main.githash=$GITHASH"
+  - go build -v -ldflags "-extldflags '-static' -X main.githash=$GITHASH"
