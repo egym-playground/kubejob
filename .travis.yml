@@ -5,8 +5,8 @@ install:
   - /bin/true
 script:
   - set -e
+  - export GITHASH=$(git rev-parse HEAD) # Git commit hash is used as version string in main.go
+  - go build -v -ldflags "-extldflags '-static' -X main.githash=$GITHASH"
   - diff -u <(echo -n) <(gofmt -d ./)
   - go vet .
   - go test -cover -race ./...
-  - export GITHASH=$(git rev-parse HEAD) # Git commit hash is used as version string in main.go
-  - go build -v -ldflags "-extldflags '-static' -X main.githash=$GITHASH"
