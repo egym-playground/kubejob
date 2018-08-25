@@ -2,6 +2,7 @@ language: go
 go:
   - "1.11.x"
 install:
+  - /bin/true
 script:
   - set -e
   - diff -u <(echo -n) <(gofmt -d ./)
