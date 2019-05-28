@@ -182,7 +182,7 @@ func streamLogsForContainer(cs *kubernetes.Clientset, pod *core.Pod, container s
 			events <- fmt.Errorf("streamLogsForContainer: %v", err)
 			return
 		}
-		events <- LogLine{pod.Name, line}
+		events <- LogLine{container, line}
 		if err == io.EOF {
 			return
 		}
