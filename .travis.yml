@@ -1,11 +1,10 @@
 language: go
 go:
-  - "1.11.x"
+  - "1.12.x"
 install:
   - /bin/true # Disable default install script
 script:
   - set -e
-  - export GO111MODULE=on
   - export GITHASH=$(git rev-parse HEAD) # Git commit hash is used as version string in main.go
   - go build -v -ldflags "-extldflags '-static' -X main.githash=$GITHASH"
   - diff -u <(echo -n) <(gofmt -d ./)
