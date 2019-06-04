@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 	"time"
 
@@ -133,6 +134,11 @@ end:
 		err = ctx.Err()
 	}
 
+	// close events channel to signal that we're done here
+	if events != nil {
+		close(events)
+	}
+
 	// send the result
 	resultChan <- result{success, err}
 }
@@ -192,8 +198,16 @@ func streamLogsForContainer(cs *kubernetes.Clientset, pod *core.Pod, container s
 // labelSelector converts a label map (as used in the job spec) into a label query as used in the API.
 func labelSelector(labels map[string]string) string {
 	var buf bytes.Buffer
-	for k, v := range labels {
-		fmt.Fprintf(&buf, "%s=%s,", k, v)
+
+	// sort keys to make output deterministic
+	var keys []string
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		fmt.Fprintf(&buf, "%s=%s,", k, labels[k])
 	}
 	if buf.Len() > 0 {
 		buf.Truncate(buf.Len() - 1)
