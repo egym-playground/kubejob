@@ -133,6 +133,11 @@ end:
 		err = ctx.Err()
 	}
 
+	// close events channel to signal that we're done here
+	if events != nil {
+		close(events)
+	}
+
 	// send the result
 	resultChan <- result{success, err}
 }
