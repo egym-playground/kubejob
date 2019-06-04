@@ -17,7 +17,7 @@ func TestLabelSelector(t *testing.T) {
 		},
 		{
 			map[string]string{"foo": "bar", "fizz": "buzz"},
-			"foo=bar,fizz=buzz",
+			"fizz=buzz,foo=bar",
 		},
 	}
 
