@@ -1,6 +1,6 @@
 language: go
 go:
-  - "1.13.0"
+  - "1.13"
 install:
   - /bin/true # Disable default install script
 script:
