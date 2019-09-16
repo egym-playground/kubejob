@@ -1,5 +1,7 @@
 module github.com/egymgmbh/kubejob
 
+go 1.13
+
 require (
 	cloud.google.com/go v0.35.1 // indirect
 	github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc // indirect
