@@ -1,4 +1,4 @@
-module github.com/egymgmbh/kubejob
+module github.com/egym-playground/kubejob
 
 go 1.13
 

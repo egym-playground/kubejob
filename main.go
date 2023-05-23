@@ -16,8 +16,8 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp" // enable GCP specific authentication
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/egymgmbh/kubejob/pkg/cli"
-	"github.com/egymgmbh/kubejob/pkg/job"
+	"github.com/egym-playground/kubejob/pkg/cli"
+	"github.com/egym-playground/kubejob/pkg/job"
 )
 
 var githash string // set by linker, see '.travis.yml'

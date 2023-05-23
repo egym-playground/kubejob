@@ -8,7 +8,7 @@ eg. for running a smoke test or a database migration before the actual deploymen
 
 ## How to install
 ```bash
-go get -v -u github.com/egymgmbh/kubejob
+go get -v -u github.com/egym-playground/kubejob
 ```
 
 ## How to use
